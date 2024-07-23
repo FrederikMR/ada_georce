@@ -17,6 +17,9 @@ import jax.numpy as jnp
 #jac scipy
 import jax.scipy as jscipy
 
+#random
+import jax.random as jrandom
+
 #JAX Optimization
 from jax.example_libraries import optimizers
 

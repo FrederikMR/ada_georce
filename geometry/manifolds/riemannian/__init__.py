@@ -8,11 +8,12 @@ Created on Sat May 25 14:35:56 2024
 
 #%% Modules
 
-from .manifold import RiemannianManifold
+from .manifold import RiemannianManifold, StochasticRiemannianManifold
 from .SPDN import SPDN
 from .gp_riemannian import GPRiemannian
 from .HyperbolicParaboloid import HyperbolicParaboloid
 from .nParaboloid import nParaboloid
+from .nSParaboloid import nSParaboloid
 from .nSphere import nSphere
 from .nEllipsoid import nEllipsoid
 from .nEuclidean import nEuclidean
