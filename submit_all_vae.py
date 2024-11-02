@@ -26,7 +26,7 @@ def submit_job():
 
 def generate_job(model:str, latent_dim:int,):
 
-    with open ('submit_runtime.sh', 'w') as rsh:
+    with open ('submit_vae.sh', 'w') as rsh:
         rsh.write(f'''\
     #! /bin/bash
     #BSUB -q gpuv100
