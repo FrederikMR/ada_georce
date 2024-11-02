@@ -63,14 +63,16 @@ def parse_args():
                         type=float)
     parser.add_argument('--batch_size', default=100,
                         type=int)
-    parser.add_argument('--epochs', default=50000,
+    parser.add_argument('--latent_dim', default=16,
                         type=int)
-    parser.add_argument('--seed', default=2712,
+    parser.add_argument('--epochs', default=50000,
                         type=int)
     parser.add_argument('--save_step', default=100,
                         type=int)
     parser.add_argument('--save_path', default='models/',
                         type=str)
+    parser.add_argument('--seed', default=2712,
+                        type=int)
 
     args = parser.parse_args()
     return args
@@ -90,7 +92,7 @@ def train_vae()->None:
         @hk.transform
         def vae_model(x):
             vae = mnist_vae(
-                        encoder=mnist_encoder(latent_dim=8),
+                        encoder=mnist_encoder(latent_dim=args.latent_dim),
                         decoder=mnist_decoder(),
             )
           
@@ -106,7 +108,7 @@ def train_vae()->None:
         def vae_model(x):
 
             vae = svhn_vae(
-                        encoder=svhn_encoder(latent_dim=32),
+                        encoder=svhn_encoder(latent_dim=args.latent_dim),
                         decoder=svhn_decoder(),
             )
           
@@ -121,7 +123,7 @@ def train_vae()->None:
         def vae_model(x):
 
             vae = celeba_vae(
-                        encoder=celeba_encoder(latent_dim=32),
+                        encoder=celeba_encoder(latent_dim=args.latent_dim),
                         decoder=celeba_decoder(),
             )
           
@@ -129,7 +131,7 @@ def train_vae()->None:
     else:
         raise ValueError(f"Undefined data model {args.model}. You can only choose: mnist, svhn, celeba")
                             
-    save_path = ''.join((args.save_path, args.model, '/'))
+    save_path = ''.join((args.save_path, args.model, f'_{args.latent_dim}', '/'))
     if args.con_training:
         state = load_model(save_path)
     else:

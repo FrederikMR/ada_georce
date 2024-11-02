@@ -15,7 +15,7 @@ from jax import jit
 
 import haiku as hk
 
-from geometry.manifolds.riemannian import nSphere, nEllipsoid, nEuclidean, nParaboloid, HyperbolicParaboloid, VAEManifold, SPDN
+from geometry.riemannian.manifolds import nSphere, nEllipsoid, nEuclidean, nParaboloid, HyperbolicParaboloid, LatentSpaceManifold, SPDN
 
 from vae.model_loader import mnist_generator, svhn_generator, celeba_generator, load_model
 
@@ -105,7 +105,7 @@ def load_manifold(manifold:str="Euclidean",
                                                          celeba_state.rng_key, 
                                                          x))
         
-        M = VAEManifold(dim=32,
+        M = LatentSpaceManifold(dim=32,
                         emb_dim=64*64*3,
                         encoder=celeba_encoder_fun,
                         decoder=celeba_decoder_fun,
@@ -162,7 +162,7 @@ def load_manifold(manifold:str="Euclidean",
                                                      svhn_state.rng_key, 
                                                      x))
         
-        M = VAEManifold(dim=32,
+        M = LatentSpaceManifold(dim=32,
                         emb_dim=32*32*3,
                         encoder=svhn_encoder_fun,
                         decoder=svhn_decoder_fun,
@@ -216,7 +216,7 @@ def load_manifold(manifold:str="Euclidean",
                                                        mnist_state.rng_key, 
                                                        x))
         
-        M = VAEManifold(dim=8,
+        M = LatentSpaceManifold(dim=8,
                         emb_dim=28*28,
                         encoder=mnist_encoder_fun,
                         decoder=mnist_decoder_fun,

@@ -28,3 +28,8 @@ from scipy.optimize import minimize
 
 from abc import ABC
 from typing import Callable, Tuple, Dict 
+
+#%% Enable 64 bits
+
+#import jax
+#jax.config.update("jax_enable_x64", True)

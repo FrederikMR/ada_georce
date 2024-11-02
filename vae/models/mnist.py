@@ -122,7 +122,7 @@ class Decoder(hk.Module):
     
     def __call__(self, x:Array)->Array:
         
-        return self.decoder_model(x)
+        return sigmoid(self.decoder_model(x))
   
 #%% Riemannian Score Variational Prior
 
