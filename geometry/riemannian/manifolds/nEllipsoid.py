@@ -95,19 +95,6 @@ class nEllipsoid(RiemannianManifold):
         
         return jnp.arccos(jnp.dot(x,y))
     
-    def Exp(self,
-            x:Array,
-            v:Array,
-            t:float=1.0,
-            )->Array:
-        
-        x /= self.params
-        v /= self.params
-        
-        norm = jnp.linalg.norm(v)
-        
-        return (jnp.cos(norm*t)*x+jnp.sin(norm*t)*v/norm)*self.params
-    
     def Log(self,
             x:Array,
             y:Array
@@ -121,27 +108,6 @@ class nEllipsoid(RiemannianManifold):
         val = y-dot*x
         
         return self.params*dist*val/jnp.linalg.norm(val)
-    
-    def Geodesic(self,
-                 x:Array,
-                 y:Array,
-                 t_grid:Array=None,
-                 )->Array:
-        
-        if t_grid is None:
-            t_grid = jnp.linspace(0.,1.,99, endpoint=False)
-        
-        x = self.F(x)
-        y = self.F(y)
-        
-        x_s = x/self.params
-        y_s = y/self.params
-        
-        v = self.Log(x_s,y_s)/self.params
-        
-        gamma = self.params*vmap(lambda t: self.Exp(x_s, v,t))(t_grid)
-        
-        return jnp.vstack((x,gamma,y))
     
     
     

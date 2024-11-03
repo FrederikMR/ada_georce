@@ -1,39 +1,31 @@
-#!/bin/sh
-#BSUB -q gpuv100
-#BSUB -J Ellipsoid100_100
-#BSUB -n 4
-#BSUB -gpu "num=1:mode=exclusive_process"
-#BSUB -W 24:00
-#BSUB -R "rusage[mem=10GB]"
-#BSUB -u fmry@dtu.dk
-#BSUB -B
-#BSUB -N
-#BSUB -o sendmeemail/error_%J.out 
-#BSUB -e sendmeemail/output_%J.err 
-
-#Load the following in case
-#module load python/3.8
-module swap cuda/12.0
-module swap cudnn/v8.9.1.23-prod-cuda-12.X
-module swap python3/3.10.12
-
-python3 runtime_geodesics.py \
-    --manifold Ellipsoid \
-    --svhn_dir ../../Data/SVHN/ \
-    --celeba_dir ../../Data/CelebA/ \
-    --dim 100 \
-    --T 100 \
-    --scipy_methods 1 \
-    --jax_methods 1 \
-    --jax_lr_rate 0.01 \
-    --gc_lr_rate 1.0 \
-    --gradient_lr_rate 1.0 \
-    --gc_decay_rate 0.5 \
-    --gradient_decay_rate 0.5 \
-    --tol 1e-4 \
-    --max_iter 1000 \
-    --line_search_iter 100 \
-    --number_repeats 5 \
-    --timing_repeats 5 \
-    --seed 2712 \
-    --save_path timing/
+    #! /bin/bash
+    #BSUB -q gpua100
+    #BSUB -J ADAM_RSphere100_10
+    #BSUB -n 4
+    #BSUB -gpu "num=1:mode=exclusive_process"
+    #BSUB -W 24:00
+    #BSUB -R "rusage[mem=10GB]"
+    #BSUB -u fmry@dtu.dk
+    #BSUB -B
+    #BSUB -N
+    #BSUB -o sendmeemail/error_%J.out 
+    #BSUB -e sendmeemail/output_%J.err 
+    
+    module swap cuda/12.0
+    module swap cudnn/v8.9.1.23-prod-cuda-12.X
+    module swap python3/3.10.12
+    
+    python3 runtime.py \
+        --manifold Sphere \
+        --geometry Riemannian \
+        --dim 100 \
+        --T 100 \
+        --method ADAM \
+        --batch_size 10
+        --tol 1e-4 \
+        --max_iter 1000 \
+        --number_repeats 5 \
+        --timing_repeats 5 \
+        --seed 2712 \
+        --save_path timing_gpu/
+    
