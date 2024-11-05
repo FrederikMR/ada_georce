@@ -100,7 +100,7 @@ class RegGEORCE(ABC):
         
         SJ, sgt, rg = self.sample_estimates(zt, ut)
         
-        SG = jnp.einsum('tij,tik->tjk', SJ, SJ)
+        SG = jnp.einsum('tij,tik->tjk', SJ, SJ)+self.alpha*jnp.eye(self.M.dim)
         
         term1 = zt[0]-self.z0
         val1 = jnp.einsum('i,ij,j->', term1, SG[0], term1)
@@ -127,7 +127,7 @@ class RegGEORCE(ABC):
                       )->Array:
         
         SJ = vmap(self.PM.SJ, in_axes=(0,None))(zt, batch)
-        SG = jnp.einsum('...ik,...il->...kl', SJ, SJ)
+        SG = jnp.einsum('...ik,...il->...kl', SJ, SJ)+self.alpha*jnp.eye(self.M.dim)
         
         return jnp.sum(jnp.einsum('ti,tij,tj->t', ut, SG, ut)), SJ
     
@@ -330,7 +330,7 @@ class RegGEORCE(ABC):
                        idx,
                        )
             
-        self.alpha_schedule(idx)
+        #self.alpha_schedule(idx)
         
         return (zt_k2, ut_k2, SJ_k2, SJ_hat, sgt_k2, sgt_hat, 
                 rg_k2, grad, beta1, beta2, kappa, idx+1)

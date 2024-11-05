@@ -38,21 +38,21 @@ from geometry.riemannian.geodesics import GEORCE, AdaGEORCE, RegGEORCE, JAXOptim
 def parse_args():
     parser = argparse.ArgumentParser()
     # File-paths
-    parser.add_argument('--manifold', default="Sphere",
+    parser.add_argument('--manifold', default="mnist",
                         type=str)
     parser.add_argument('--geometry', default="Riemannian",
                         type=str)
-    parser.add_argument('--dim', default=2,
+    parser.add_argument('--dim', default=128,
                         type=int)
     parser.add_argument('--T', default=100,
                         type=int)
-    parser.add_argument('--method', default="BFGS",
+    parser.add_argument('--method', default="GEORCE",
                         type=str)
-    parser.add_argument('--batch_size', default=3,
+    parser.add_argument('--batch_size', default=500,
                         type=int)
     parser.add_argument('--tol', default=1e-4,
                         type=float)
-    parser.add_argument('--max_iter', default=10,
+    parser.add_argument('--max_iter', default=1000,
                         type=int)
     parser.add_argument('--number_repeats', default=1,
                         type=int)
@@ -129,7 +129,7 @@ def riemannian_runtime()->None:
     save_path = ''.join((save_path, args.method, 
                          f'_{args.manifold}', 
                          f'_d={args.dim}', 
-                         f'_T={args.batch_size}.pkl',
+                         f'_batch={args.batch_size}.pkl',
                          ))
     if os.path.exists(save_path):
         os.remove(save_path)
@@ -192,16 +192,29 @@ def riemannian_runtime()->None:
         methods['init'] = init
         save_times(methods, save_path)
     elif args.method == "GEORCE":
-        Geodesic = GEORCE(M=M,
-                          init_fun=init_fun,
-                          T=args.T,
-                          tol=args.tol,
-                          max_iter=args.max_iter,
-                          line_search_method="soft",
-                          line_search_params={'rho':0.5},
-                          )
-        methods['GEORCE'] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
-        save_times(methods, save_path)
+        if args.batch_size == M.emb_dim:
+            Geodesic = GEORCE(M=M,
+                              init_fun=init_fun,
+                              T=args.T,
+                              tol=args.tol,
+                              max_iter=args.max_iter,
+                              line_search_method="soft",
+                              line_search_params={'rho':0.5},
+                              )
+            methods['GEORCE'] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
+            save_times(methods, save_path)
+        else:
+            true = {}
+            true['length'] = jnp.nan
+            true['grad_norm'] = jnp.nan
+            true['iterations'] = jnp.nan
+            true['mu_time'] = jnp.nan
+            true['std_time'] = jnp.nan
+            true['tol'] = jnp.nan
+            true['max_iter'] = jnp.nan
+            true['error'] = jnp.nan
+            methods['GEORCE'] = true
+            save_times(methods, save_path)
     elif args.method == "AdaGEORCE":
         Geodesic = AdaGEORCE(M=M,
                           batch_size=args.batch_size,
@@ -213,6 +226,19 @@ def riemannian_runtime()->None:
                           seed=args.seed,
                           )
         methods['AdaGEORCE'] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
+        save_times(methods, save_path)
+    elif args.method == "RegGEORCE":
+        Geodesic = RegGEORCE(M=M,
+                             batch_size=args.batch_size,
+                             init_fun=init_fun,
+                             alpha=1e-3,
+                             T=args.T,
+                             eps_conv = args.tol,
+                             tol=args.tol,
+                             max_iter=args.max_iter,
+                             seed=args.seed,
+                             )
+        methods['RegEORCE'] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
         save_times(methods, save_path)
     elif args.method == "RegGEORCE":
         Geodesic = RegGEORCE(M=M,
@@ -254,19 +280,32 @@ def riemannian_runtime()->None:
         methods["SGD"] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
         save_times(methods, save_path)
     else:
-        try:
-            Geodesic = ScipyOptimization(M = M,
-                                         batch_size=args.batch_size,
-                                         T=args.T,
-                                         tol=args.tol,
-                                         max_iter=args.max_iter,
-                                         method=args.method,
-                                         seed=args.seed,
-                                         )
-            methods[args.method] = estimate_method(Geodesic, z0, zT, M, base_length)
+        if args.batch_size == M.emb_dim:
+            try:
+                Geodesic = ScipyOptimization(M = M,
+                                             batch_size=args.batch_size,
+                                             T=args.T,
+                                             tol=args.tol,
+                                             max_iter=args.max_iter,
+                                             method=args.method,
+                                             seed=args.seed,
+                                             )
+                methods[args.method] = estimate_method(Geodesic, z0, zT, M, base_length)
+                save_times(methods, save_path)
+            except:
+                "Method is not defined"
+        else:
+            true = {}
+            true['length'] = jnp.nan
+            true['grad_norm'] = jnp.nan
+            true['iterations'] = jnp.nan
+            true['mu_time'] = jnp.nan
+            true['std_time'] = jnp.nan
+            true['tol'] = jnp.nan
+            true['max_iter'] = jnp.nan
+            true['error'] = jnp.nan
+            methods[f'{args.method}'] = true
             save_times(methods, save_path)
-        except:
-            "Method is not defined"
             
     print(methods)
     
