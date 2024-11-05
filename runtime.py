@@ -60,7 +60,7 @@ def parse_args():
                         type=int)
     parser.add_argument('--seed', default=2712,
                         type=int)
-    parser.add_argument('--save_path', default='timing/',
+    parser.add_argument('--save_path', default='timing_local/',
                         type=str)
 
     args = parser.parse_args()
