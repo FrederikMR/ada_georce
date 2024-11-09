@@ -33,12 +33,12 @@ from vae.models import celeba_vae
 
 #%% Load manifolds
 
-def load_manifold(manifold:str="Euclidean", 
+def load_manifold(manifold:str="Euclidean",
                   dim:int = 2,
                   svhn_path:str = "../../../Data/SVHN/",
                   celeba_path:str = "../../../Data/CelebA/",
                   ):
-    
+   
     if manifold == "Euclidean":
         M = nEuclidean(dim=dim)
         z0 = -jnp.linspace(0,1,dim)
@@ -46,7 +46,7 @@ def load_manifold(manifold:str="Euclidean",
     if manifold == "SPDN":
         M = SPDN(N=dim)
         x0 = jnp.eye(dim)
-        
+       
         z0 = M.invf(x0)
         zT = jnp.linspace(0.5,1.0, M.dim)
     elif manifold == "Paraboloid":
@@ -76,54 +76,54 @@ def load_manifold(manifold:str="Euclidean",
                         encoder=celeba_encoder(latent_dim=dim),
                         decoder=celeba_decoder(),
             )
-          
+         
             return vae(x)
-        
+       
         @hk.transform
         def celeba_tencoder(x):
-        
+       
             encoder = celeba_encoder(latent_dim=32)
-        
+       
             return encoder(x)[0]
-        
+       
         @hk.transform
         def celeba_tdecoder(x):
-        
+       
             decoder = celeba_decoder()
-        
+       
             return decoder(x)
-        
-        celeba_encoder_fun = jit(lambda x: celeba_tencoder.apply(celeba_state.params, 
-                                                                 None, 
+       
+        celeba_encoder_fun = jit(lambda x: celeba_tencoder.apply(celeba_state.params,
+                                                                 None,
                                                                  x.reshape(-1,64,64,3)
                                                                  )[0].reshape(-1,dim).squeeze())
-        celeba_decoder_fun = jit(lambda x: celeba_tdecoder.apply(celeba_state.params, 
-                                                                 None, 
+        celeba_decoder_fun = jit(lambda x: celeba_tdecoder.apply(celeba_state.params,
+                                                                 None,
                                                                  x.reshape(-1,dim)
                                                                  ).reshape(-1,64*64*3).squeeze())
-        celeba_vae_fun = jit(lambda x: celeba_tvae.apply(celeba_state.params, 
-                                                         celeba_state.rng_key, 
+        celeba_vae_fun = jit(lambda x: celeba_tvae.apply(celeba_state.params,
+                                                         celeba_state.rng_key,
                                                          x))
-        
+       
         M = LatentSpaceManifold(dim=dim,
                                 emb_dim=64*64*3,
                                 encoder=celeba_encoder_fun,
                                 decoder=celeba_decoder_fun,
                                 )
-        
-        
+       
+       
         celeba_data = next(celeba_dataloader).x
         celeba_rec = celeba_vae_fun(celeba_data)
-        
+       
         z0, zT = celeba_rec.mu_zx[0], celeba_rec.mu_zx[1]
-        
+       
         return z0, zT, M
-    
+   
     elif manifold == "svhn":
         svhn_state = load_model(''.join(('models/', f'svhn_{dim}/')))
         svhn_dataloader = svhn_generator(data_dir=svhn_path,
                                          batch_size=64,
-                                         seed=2712, 
+                                         seed=2712,
                                          split='train[:80%]',
                                          )
         @hk.transform
@@ -133,105 +133,105 @@ def load_manifold(manifold:str="Euclidean",
                         encoder=svhn_encoder(latent_dim=dim),
                         decoder=svhn_decoder(),
             )
-          
+         
             return vae(x)
-        
+       
         @hk.transform
         def svhn_tencoder(x):
-        
+       
             encoder = svhn_encoder(latent_dim=dim)
-        
+       
             return encoder(x)[0]
-        
+       
         @hk.transform
         def svhn_tdecoder(x):
-        
+       
             decoder = svhn_decoder()
-        
+       
             return decoder(x)
-        
-        svhn_encoder_fun = jit(lambda x: svhn_tencoder.apply(svhn_state.params, 
-                                                             None, 
+       
+        svhn_encoder_fun = jit(lambda x: svhn_tencoder.apply(svhn_state.params,
+                                                             None,
                                                              x.reshape(-1,32,32,3)
                                                              )[0].reshape(-1,dim).squeeze())
-        svhn_decoder_fun = jit(lambda x: svhn_tdecoder.apply(svhn_state.params, 
-                                                             None, 
+        svhn_decoder_fun = jit(lambda x: svhn_tdecoder.apply(svhn_state.params,
+                                                             None,
                                                              x.reshape(-1,dim)
                                                              ).reshape(-1,32*32*3).squeeze())
-        svhn_vae_fun = jit(lambda x: svhn_tvae.apply(svhn_state.params, 
-                                                     svhn_state.rng_key, 
+        svhn_vae_fun = jit(lambda x: svhn_tvae.apply(svhn_state.params,
+                                                     svhn_state.rng_key,
                                                      x))
-        
+       
         M = LatentSpaceManifold(dim=dim,
                                 emb_dim=32*32*3,
                                 encoder=svhn_encoder_fun,
                                 decoder=svhn_decoder_fun,
                                 )
-        
-        
+       
+       
         svhn_data = next(svhn_dataloader).x
         svhn_rec = svhn_vae_fun(svhn_data)
-        
+       
         z0, zT = svhn_rec.mu_zx[0], svhn_rec.mu_zx[1]
-        
+       
         return z0, zT, M
     elif manifold == "mnist":
         mnist_state = load_model(''.join(('models/', f'mnist_{dim}/')))
         mnist_dataloader = mnist_generator(seed=2712,
                                            batch_size=64,
                                            split='train[:80%]')
-        
+       
         @hk.transform
         def mnist_tvae(x):
-        
+       
             vae = mnist_vae(
                         encoder=mnist_encoder(latent_dim=dim),
                         decoder=mnist_decoder(),
             )
-        
+       
             return vae(x)
-        
+       
         @hk.transform
         def mnist_tencoder(x):
-        
+       
             encoder = mnist_encoder(latent_dim=dim)
-        
+       
             return encoder(x)[0]
-        
+       
         @hk.transform
         def mnist_tdecoder(x):
-        
+       
             decoder = mnist_decoder()
-        
+       
             return decoder(x)
-        
-        mnist_encoder_fun = jit(lambda x: mnist_tencoder.apply(mnist_state.params, 
-                                                               None, 
+       
+        mnist_encoder_fun = jit(lambda x: mnist_tencoder.apply(mnist_state.params,
+                                                               None,
                                                                x.reshape(-1,28,28,1)
                                                                )[0].reshape(-1,dim).squeeze())
-        mnist_decoder_fun = jit(lambda x: mnist_tdecoder.apply(mnist_state.params, 
-                                                               None, 
+        mnist_decoder_fun = jit(lambda x: mnist_tdecoder.apply(mnist_state.params,
+                                                               None,
                                                                x.reshape(-1,dim)
                                                                ).reshape(-1,28*28).squeeze())
-        mnist_vae_fun = jit(lambda x: mnist_tvae.apply(mnist_state.params, 
-                                                       mnist_state.rng_key, 
+        mnist_vae_fun = jit(lambda x: mnist_tvae.apply(mnist_state.params,
+                                                       mnist_state.rng_key,
                                                        x))
-        
+       
         M = LatentSpaceManifold(dim=dim,
                                 emb_dim=28*28,
                                 encoder=mnist_encoder_fun,
                                 decoder=mnist_decoder_fun,
                                 )
-        
-        
+       
+       
         mnist_data = next(mnist_dataloader).x
         mnist_rec = mnist_vae_fun(mnist_data)
-        
+       
         z0, zT = mnist_rec.mu_zx[0], mnist_rec.mu_zx[1]
-        
+       
         return z0, zT, M
-        
+       
     else:
         raise ValueError(f"Manifold, {manifold}, is not defined. Only suported is: \n\t-Euclidean\n\t-Paraboloid\n\t-Sphere")
-        
+       
     return z0, zT, M

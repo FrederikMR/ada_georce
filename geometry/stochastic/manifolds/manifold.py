@@ -12,26 +12,39 @@ Created on Fri Nov  1 01:25:57 2024
 
 from geometry.setup import *
 from geometry.riemannian.manifolds import RiemannianManifold
-
-#%% Partial Riemannian Manifold
-
+    
+#%% Indicator Manifold
+    
 class IndicatorManifold(ABC):
     def __init__(self,
                  M:RiemannianManifold,
-                 batch_size:int,
+                 extrinsic_batch_size:int=None,
+                 intrinsic_batch_size:int=None,
                  seed:int = 2712,
                  )->None:
         
         self.M = M
-        self.batch_size = batch_size
+        if extrinsic_batch_size is None:
+            self.extrinsic_batch_size = M.emb_dim
+        else:
+            self.extrinsic_batch_size = extrinsic_batch_size
+        
+        if intrinsic_batch_size is None:
+            self.intrinsic_batch_size = M.dim
+        else:
+            self.intrinsic_batch_size = intrinsic_batch_size
+            
         self.seed = seed
         self.key = jrandom.key(self.seed)
         
-        self.scaling = self.M.emb_dim/batch_size
+        if self.intrinsic_batch_size is None:
+            self.scaling = self.M.emb_dim/extrinsic_batch_size
+        else:
+            self.scaling = (self.M.emb_dim/self.extrinsic_batch_size)*(self.M.dim/self.intrinsic_batch_size)
         self.SG = self.SG_pull_back
         
-        self.batch_values = jnp.arange(0,self.M.emb_dim,1)
-        self.idx_set = self.random_batch
+        self.extrinsic_batch = jnp.arange(0,self.M.emb_dim,1)
+        self.instrinsic_batch = jnp.arange(0,self.M.dim,1)
             
         return
         
@@ -44,32 +57,47 @@ class IndicatorManifold(ABC):
         
         self.key, subkey = jrandom.split(self.key)
 
-        return jrandom.choice(subkey, 
-                              a=self.batch_values,
-                              shape=(self.batch_size,), 
-                              replace=False,
-                              )
+        extrinsic_batch = jrandom.choice(subkey, 
+                                         a=self.extrinsic_batch,
+                                         shape=(self.extrinsic_batch_size,), 
+                                         replace=False,
+                                         )
+
+        self.key, subkey = jrandom.split(self.key)
+
+        intrinsic_batch = jrandom.choice(subkey, 
+                                         a=self.instrinsic_batch,
+                                         shape=(self.M.dim-self.intrinsic_batch_size,), 
+                                         replace=False,
+                                         )
+            
+        return extrinsic_batch, intrinsic_batch
     
     def Sf(self, 
            z:Array, 
-           batch:Array
+           extrinsic_batch:Array,
            )->Array:
         
-        return self.M.f(z)[batch]
+        return self.M.f(z)[extrinsic_batch]
+            
     
     def SJ(self, 
            z:Array, 
-           batch:Array
+           extrinsic_batch:Array,
+           intrinsic_batch:Array=None,
            )->Array:
+
+        z = z.at[intrinsic_batch].set(lax.stop_gradient(z[intrinsic_batch]))
         
-        return jacfwd(self.Sf, argnums=0)(z, batch)
+        return jacfwd(self.Sf, argnums=0)(z, extrinsic_batch)
     
     def SG_pull_back(self, 
                      z:Array, 
-                     batch:Array,
+                     extrinsic_batch:Array,
+                     intrinsic_batch:Array,
                      )->Array:
         
-        SJf = self.SJ(z, batch)
+        SJf = self.SJ(z, extrinsic_batch, intrinsic_batch)
         
         return self.scaling*jnp.einsum('ik,il->kl', SJf, SJf)
     

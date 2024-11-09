@@ -31,26 +31,26 @@ from jax.example_libraries import optimizers
 
 import geometry
 from load_manifold import load_manifold
-from geometry.riemannian.geodesics import GEORCE, AdaGEORCE, RegGEORCE, JAXOptimization, ScipyOptimization
+from geometry.riemannian.geodesics import GEORCE, AdaGEORCE, JAXOptimization, ScipyOptimization
 
 #%% Args Parser
 
 def parse_args():
     parser = argparse.ArgumentParser()
     # File-paths
-    parser.add_argument('--manifold', default="mnist",
+    parser.add_argument('--manifold', default="celeba",
                         type=str)
     parser.add_argument('--geometry', default="Riemannian",
                         type=str)
-    parser.add_argument('--dim', default=128,
+    parser.add_argument('--dim', default=64,
                         type=int)
     parser.add_argument('--T', default=100,
                         type=int)
     parser.add_argument('--method', default="GEORCE",
                         type=str)
-    parser.add_argument('--batch_size', default=500,
+    parser.add_argument('--batch_size', default=200,
                         type=int)
-    parser.add_argument('--tol', default=1e-4,
+    parser.add_argument('--tol', default=1e-3,
                         type=float)
     parser.add_argument('--max_iter', default=1000,
                         type=int)
@@ -217,46 +217,23 @@ def riemannian_runtime()->None:
             save_times(methods, save_path)
     elif args.method == "AdaGEORCE":
         Geodesic = AdaGEORCE(M=M,
-                          batch_size=args.batch_size,
-                          init_fun=init_fun,
-                          T=args.T,
-                          eps_conv = args.tol,
-                          tol=args.tol,
-                          max_iter=args.max_iter,
-                          seed=args.seed,
-                          )
-        methods['AdaGEORCE'] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
-        save_times(methods, save_path)
-    elif args.method == "RegGEORCE":
-        Geodesic = RegGEORCE(M=M,
-                             batch_size=args.batch_size,
-                             init_fun=init_fun,
+                             intrinsic_batch_size=M.dim,
+                             extrinsic_batch_size=args.batch_size,
                              alpha=1e-3,
+                             init_fun=init_fun,
                              T=args.T,
                              eps_conv = args.tol,
                              tol=args.tol,
                              max_iter=args.max_iter,
                              seed=args.seed,
                              )
-        methods['RegEORCE'] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
-        save_times(methods, save_path)
-    elif args.method == "RegGEORCE":
-        Geodesic = RegGEORCE(M=M,
-                          batch_size=args.batch_size,
-                          init_fun=init_fun,
-                          alpha=1e-3,
-                          eps_conv = args.tol, 
-                          T=args.T,
-                          tol=args.tol,
-                          max_iter=args.max_iter,
-                          seed=args.seed,
-                          )
-        methods['RegGEORCE'] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
+        methods['AdaGEORCE'] = estimate_method(jit(Geodesic), z0, zT, M, base_length)
         save_times(methods, save_path)
     elif args.method == "ADAM":
         Geodesic = JAXOptimization(M = M,
                                    init_fun=init_fun,
-                                   batch_size=args.batch_size,
+                                   intrinsic_batch_size=M.dim,
+                                   extrinsic_batch_size=args.batch_size,
                                    lr_rate=0.01,
                                    optimizer=optimizers.adam,
                                    T=args.T,

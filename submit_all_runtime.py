@@ -51,7 +51,7 @@ def generate_job(manifold, d, method, geometry, batch_size):
         --dim {d} \\
         --T 100 \\
         --method {method} \\
-        --batch_size {batch_size}
+        --batch_size {batch_size} \\
         --tol 0.0001 \\
         --max_iter 1000 \\
         --number_repeats 5 \\
@@ -69,32 +69,23 @@ def loop_jobs(wait_time = 1.0):
     geomtries = ['Riemannian']
     scipy_methods = []#["BFGS", 'CG', 'dogleg', 'trust-ncg', 'trust-exact']
     jax_methods = ["ADAM", "SGD"]
-    methods = ['AdaGEORCE', 'RegGEORCE', 'GEORCE', 'init', 'ground_truth']
+    methods = ['AdaGEORCE', 'GEORCE', 'init', 'ground_truth']
     methods += jax_methods + scipy_methods
     #sphere
     runs = {"mnist": {8: [100, 200, 28*28], 
                       16: [100, 200, 28*28],
                       32: [100, 200, 28*28],
                       64: [100, 200, 28*28],
-                      128: [100, 200, 28*28],
-                      256: [100, 200, 28*28],
-                      512: [100, 200, 28*28],
                        },
             "svhn": {8: [100, 200, 32*32*3], 
                      16: [100, 200, 32*32*3],
                      32: [100, 200, 32*32*3],
                      64: [100, 200, 32*32*3],
-                     128: [100, 200, 32*32*3],
-                     256: [100, 200, 32*32*3],
-                     512: [100, 200, 32*32*3],
                      },
             "celeba": {8: [100, 200, 64*64*3], 
                        16: [100, 200, 64*64*3],
                        32: [100, 200, 64*64*3],
                        64: [100, 200, 64*64*3],
-                       128: [100, 200, 64*64*3],
-                       256: [100, 200, 64*64*3],
-                       512: [100, 200, 64*64*3],
                        },
             "Sphere": {500: [100, 200, 501], 
                        1000: [100, 200, 1001],

@@ -20,9 +20,10 @@ from geometry.stochastic.manifolds import IndicatorManifold
 class JAXOptimization(ABC):
     def __init__(self,
                  M:RiemannianManifold,
-                 batch_size:int=None,
+                 intrinsic_batch_size:int=None,
+                 extrinsic_batch_size:int=None,
                  init_fun:Callable[[Array, Array, int], Array]=None,
-                 lr_rate:float=1.0,
+                 lr_rate:float=0.01,
                  optimizer:Callable=None,
                  T:int=100,
                  max_iter:int=1000,
@@ -30,16 +31,24 @@ class JAXOptimization(ABC):
                  seed:int=2712,
                  )->None:
         
-        if batch_size is None:
-            self.batch_size = M.emb_dim
+        if extrinsic_batch_size is None:
+            self.extrinsic_batch_size = M.emb_dim
         else:
-            self.batch_size = batch_size
+            self.extrinsic_batch_size = extrinsic_batch_size
+        
+        if intrinsic_batch_size is None:
+            self.intrinsic_batch_size = M.dim
+        else:
+            self.intrinsic_batch_size = intrinsic_batch_size
         
         self.M = M
         self.T = T
         self.max_iter = max_iter
         self.tol = tol
         self.seed = seed
+        
+        self.extrinsic_batch_size = extrinsic_batch_size
+        self.intrinsic_batch_size = intrinsic_batch_size
         
         if optimizer is None:
             self.opt_init, self.opt_update, self.get_params = optimizers.adam(lr_rate)
@@ -64,25 +73,69 @@ class JAXOptimization(ABC):
         
         return "Geodesic Computation Object using JAX Optimizers"
     
+    def energy2(self, 
+               zt:Array,
+               *args,
+               )->Array:
+        
+        def energy_path(energy:Array,
+                        y:Tuple[Array],
+                        )->Tuple[Array]:
+            
+            z1, z2 = y
+            
+            f1, f2 = self.PM.Sf(z1, extrinsic_batch), self.PM.Sf(z2, extrinsic_batch)
+            
+            dz = f2-f1
+
+            energy += jnp.sum(dz**2)
+            
+            return (energy,)*2
+        
+        extrinsic_batch, intrinsic_batch = self.PM.random_batch()
+        term1 = self.PM.Sf(zt[0], extrinsic_batch)-self.PM.Sf(self.z0, extrinsic_batch)
+        energy_init = jnp.sum(term1**2)
+        
+        zt = jnp.vstack((zt, self.zT))
+        
+        energy, _ = lax.scan(energy_path,
+                             init=energy_init,
+                             xs=(zt[:-1], zt[1:]),
+                             )
+        
+        return energy
+    
     def energy(self, 
                zt:Array,
                *args,
                )->Array:
         
-        batch = self.PM.idx_set()
-        SG0 = self.PM.SG(self.z0, batch)
-        SG = vmap(self.PM.SG, in_axes=(0,None))(zt, batch)
+        def energy_path(energy:Array,
+                        y:Tuple[Array],
+                        )->Tuple[Array]:
+            
+            z, dz = y
+            
+            SG = self.PM.SG(z, extrinsic_batch, intrinsic_batch)
+
+            energy += jnp.einsum('i,ij,j->', dz, SG, dz)
+            
+            return (energy,)*2
         
+        extrinsic_batch, intrinsic_batch = self.PM.random_batch()
+        
+        SG0 = self.PM.SG(self.z0, extrinsic_batch, intrinsic_batch)
         term1 = zt[0]-self.z0
-        val1 = jnp.einsum('i,ij,j->', term1, SG0, term1)
+        energy_init = jnp.einsum('i,ij,j->', term1, SG0, term1)
         
-        term2 = zt[1:]-zt[:-1]
-        val2 = jnp.einsum('ti,tij,tj->t', term2, SG[:-1], term2)
+        zt = jnp.vstack((zt, self.zT))
         
-        term3 = self.zT-zt[-1]
-        val3 = jnp.einsum('i,ij,j->', term3, SG[-1], term3)
+        energy, _ = lax.scan(energy_path,
+                             init=energy_init,
+                             xs=(zt[:-1], zt[1:]-zt[:-1]),
+                             )
         
-        return val1+jnp.sum(val2)+val3
+        return energy
     
     def Denergy(self,
                 zt:Array,
@@ -132,7 +185,10 @@ class JAXOptimization(ABC):
                  step:str="while",
                  )->Array:
         
-        self.PM = IndicatorManifold(self.M, self.batch_size, self.seed)
+        self.PM = IndicatorManifold(self.M, 
+                                    self.extrinsic_batch_size, 
+                                    self.intrinsic_batch_size,
+                                    self.seed)
         
         self.z0 = z0
         self.zT = zT

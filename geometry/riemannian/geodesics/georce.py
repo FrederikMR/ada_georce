@@ -58,6 +58,37 @@ class GEORCE(ABC):
                *args,
                )->Array:
         
+        SG0 = self.M.G(self.z0)
+        term1 = zt[0]-self.z0
+        energy_init = jnp.einsum('i,ij,j->', term1, SG0, term1)
+        
+        zt = jnp.vstack((zt, self.zT))
+        
+        energy, _ = lax.scan(self.energy_path,
+                             init=energy_init,
+                             xs=(zt[:-1], zt[1:]-zt[:-1]),
+                             )
+        
+        return energy
+    
+    def energy_path(self,
+                    energy,
+                    y:Tuple[Array],
+                    )->Array:
+
+        z, dz = y
+        
+        SG = self.G(z)
+
+        energy += jnp.einsum('i,ij,j->', dz, SG, dz)
+        
+        return (energy,)*2
+    
+    def energy(self, 
+               zt:Array,
+               *args,
+               )->Array:
+        
         term1 = zt[0]-self.z0
         val1 = jnp.einsum('i,ij,j->', term1, self.G0, term1)
         

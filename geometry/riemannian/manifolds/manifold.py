@@ -94,26 +94,48 @@ class RiemannianManifold(ABC):
                gamma:Array,
                )->Array:
         
-        T = len(gamma)-1
-        dt = 1.0/T
-        dgamma = (gamma[1:]-gamma[:-1])*T
+        T = len(gamma)
+        energy, _ = lax.scan(self.energy_path,
+                             init=0.0,
+                             xs=(gamma[:-1], gamma[1:]-gamma[:-1]),
+                             )
         
-        g = vmap(lambda g: self.G(g))(gamma)
-        integrand = jnp.einsum('ti,tij,tj->t', dgamma, g[:-1], dgamma)
-        
-        return jnp.trapz(integrand, dx=dt)
+        return T*energy
     
-    def length(self,
+    def energy_path(self,
+                    energy,
+                    y:Tuple[Array],
+                    )->Array:
+
+        z, dz = y
+        
+        SG = self.G(z)
+
+        energy += jnp.einsum('i,ij,j->', dz, SG, dz)
+        
+        return (energy,)*2
+    
+    def length(self, 
                gamma:Array,
                )->Array:
         
-        T = len(gamma)-1
-        dt = 1.0/T
+        length, _ = lax.scan(self.length_path,
+                             init=0.0,
+                             xs=(gamma[:-1], gamma[1:]-gamma[:-1]),
+                             )
         
-        dgamma = (gamma[1:]-gamma[:-1])*T
+        return length
+    
+    def length_path(self,
+                    length,
+                    y:Tuple[Array],
+                    )->Array:
+
+        z, dz = y
         
-        g = vmap(lambda g: self.G(g))(gamma)
-        integrand = jnp.sqrt(jnp.einsum('ti,tij,tj->t', dgamma, g[:-1], dgamma))
-            
-        return jnp.trapz(integrand, dx=dt)
+        SG = self.G(z)
+
+        length += jnp.sqrt(jnp.einsum('i,ij,j->', dz, SG, dz))
+        
+        return (length,)*2
     

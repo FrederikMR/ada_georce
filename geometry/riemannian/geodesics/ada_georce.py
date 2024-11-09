@@ -15,42 +15,54 @@ from geometry.setup import *
 from geometry.riemannian.manifolds import RiemannianManifold
 from geometry.stochastic.manifolds import IndicatorManifold
 
-#%% Adaptive GEORCE
+#%% Regularized GEORCE
 
 class AdaGEORCE(ABC):
     def __init__(self,
                  M:RiemannianManifold,
-                 init_fun:Callable[[Array, Array, int], Array]=None,
-                 batch_size:int=None,
+                 intrinsic_batch_size:int=None,
+                 extrinsic_batch_size:int=None,
                  lr_rate:float=0.1,
+                 alpha:float=1e-3,
                  beta1:float=0.5,
                  beta2:float=0.5,
                  T:int=100,
                  max_iter:int=1000,
                  tol:float=1e-1,
                  eps:float=1e-8,
+                 init_fun:Callable[[Array, Array, int], Array]=None,
                  eps_conv:float=0.1,
                  kappa_conv:float=0.99,
+                 decay_rate:int=0.96,
                  seed:int=2712,
                  )->None:
-        
-        if batch_size is None:
-            self.batch_size = M.emb_dim
-        else:
-            self.batch_size = batch_size
         
         self.M = M
         self.T = T
         self.tol = tol
         self.max_iter = max_iter
         self.seed = seed
+        
+        if extrinsic_batch_size is None:
+            self.extrinsic_batch_size = M.emb_dim
+        else:
+            self.extrinsic_batch_size = extrinsic_batch_size
+        
+        if intrinsic_batch_size is None:
+            self.intrinsic_batch_size = M.dim
+        else:
+            self.intrinsic_batch_size = intrinsic_batch_size
             
         self.lr_rate = lr_rate
+        self.alpha = alpha
+        self.decay_rate = decay_rate
         self.beta1 = beta1
         self.beta2 = beta2
         self.eps = eps
         self.eps_conv = eps_conv
         self.kappa_conv = kappa_conv
+        
+        self.H0 = vmap(lambda _: jnp.eye(self.M.dim))(jnp.ones(self.T))/self.alpha
         
         if init_fun is None:
             self.init_fun = lambda z0, zT, T: (zT-z0)*jnp.linspace(0.0,
@@ -65,26 +77,74 @@ class AdaGEORCE(ABC):
         
         return "Adaptive GEORCE Geodesic Object"
     
+    def alpha_schedule(self, 
+                       idx:int,
+                       )->None:
+        
+        self.alpha = self.alpha*self.decay_rate**(idx)
+        
+        return
+    
     def sample_estimates(self,
                          zt:Array,
                          ut:Array,
                          )->Tuple[Array]:
         
-        batch = self.PM.random_batch()
-        SG0 = self.PM.SG(self.z0, batch)
-        sgt, SG = self.sgt(zt, ut[1:], batch)
+        extrinsic_batch, intrinsic_batch = self.PM.random_batch()
+        SJ0 = self.PM.SJ(self.z0, extrinsic_batch, intrinsic_batch)
+        sgt, SJ = self.sgt(zt, ut[1:], extrinsic_batch, intrinsic_batch)
         rg = jnp.sum(sgt**2)
-        SG_concat = jnp.vstack((SG0.reshape(-1, self.M.dim, self.M.dim),
-                                SG))
+        SJ_concat = jnp.vstack((SJ0.reshape(1, self.extrinsic_batch_size, -1),
+                                SJ))
         
-        return SG_concat, sgt, rg
+        return SJ_concat, sgt, rg
+    
     
     def energy(self, 
                zt:Array,
                ut:Array,
                )->Array:
         
-        SG, sgt, rg = self.sample_estimates(zt, ut)
+        def energy_path(energy:Array,
+                        y:Array,
+                        )->Tuple[Array]:
+            
+            dz, SJ = y
+            
+            SG = jnp.einsum('ij,ik->jk', SJ, SJ)
+
+            energy += jnp.einsum('i,ij,j->', dz, SG, dz)
+            
+            return (energy,)*2
+        
+        SJ, sgt, rg = self.sample_estimates(zt, ut)
+        
+        SG0 = SG = jnp.einsum('ij,ik->jk', SJ[0], SJ[0])
+        term1 = zt[0]-self.z0
+        energy_init = jnp.einsum('i,ij,j->', term1, SG0, term1)
+        
+        zt = jnp.vstack((zt, self.zT))
+        
+        energy, _ = lax.scan(energy_path,
+                             init=energy_init,
+                             xs=(zt[1:]-zt[:-1], SJ[1:]),
+                             )
+        return energy, (SJ, sgt, rg)
+    
+    def Denergy(self,
+                zt:Array,
+                )->Array:
+        
+        return grad(self.energy)(zt)
+    
+    def energy2(self, 
+               zt:Array,
+               ut:Array,
+               )->Array:
+        
+        SJ, sgt, rg = self.sample_estimates(zt, ut)
+        
+        SG = jnp.einsum('tij,tik->tjk', SJ, SJ)+self.alpha*jnp.eye(self.M.dim)
         
         term1 = zt[0]-self.z0
         val1 = jnp.einsum('i,ij,j->', term1, SG[0], term1)
@@ -95,7 +155,7 @@ class AdaGEORCE(ABC):
         term3 = self.zT-zt[-1]
         val3 = jnp.einsum('i,ij,j->', term3, SG[-1], term3)
         
-        return val1+jnp.sum(val2)+val3, (SG, sgt, rg)
+        return val1+jnp.sum(val2)+val3, (SJ, sgt, rg)
     
     def Denergy(self,
                 zt:Array,
@@ -107,29 +167,92 @@ class AdaGEORCE(ABC):
     def inner_product(self,
                       zt:Array,
                       ut:Array,
-                      batch:Array,
+                      extrinsic_batch:Array,
+                      intrinsic_batch:Array,
                       )->Array:
         
-        SG = vmap(self.PM.SG, in_axes=(0,None))(zt, batch)
+        SJ = vmap(self.PM.SJ, in_axes=(0,None,None))(zt, extrinsic_batch, intrinsic_batch)
+        SG = jnp.einsum('...ik,...il->...kl', SJ, SJ)+self.alpha*jnp.eye(self.M.dim)
         
-        return jnp.sum(jnp.einsum('ti,tij,tj->t', ut, SG, ut)), SG
+        return jnp.sum(jnp.einsum('ti,tij,tj->t', ut, SG, ut)), SJ
     
     def sgt(self,
             zt:Array,
             ut:Array,
-            batch:Array,
+            extrinsic_batch:Array,
+            intrinsic_batch:Array,
             )->Array:
         
-        return grad(self.inner_product, has_aux=True)(zt,ut,batch)
+        return grad(self.inner_product, has_aux=True)(zt,ut,extrinsic_batch,intrinsic_batch)
+    
+    def sgt_inv(self,
+                SJ:Array,
+                )->Array:
+        
+        SJ = jnp.transpose(SJ, axes=(1,0,2))
+        
+        sgt_inv, _ = lax.scan(self.update_sgt_inv,
+                              init=self.H0,
+                              xs=SJ,
+                              )
+        
+        return sgt_inv
+    
+    def update_sgt_inv(self,
+                       hl:Array,
+                       bl:Array,
+                       )->Tuple[Array]:
+
+        term1 = jnp.einsum('...ij,...j->...i', hl, bl)
+        num = jnp.einsum('...i,...j->...ij', term1, term1)
+        den = 1.0+jnp.einsum('...i,...ij,...j->...', bl, hl, bl)
+        
+        val = jnp.einsum('...ij,...->...ij', num, 1./den)
+        
+        hl -= val
+        
+        return (hl,)*2  
+    
+    def sgt_sum_inv(self,
+                    SG0:Array,
+                    sgt_inv:Array,
+                    )->Array:
+        
+        sgt_sum = jnp.sum(sgt_inv[1:], axis=0)
+        G0 = SG0+self.alpha*jnp.eye(self.M.dim)
+        
+        val, _ = lax.scan(self.update_sgt_sum_inv,
+                          init=(0,G0),
+                          xs=sgt_sum,
+                          )
+        
+        return val[1]
+    
+    def update_sgt_sum_inv(self,
+                           carry:Tuple[Array],
+                           Bk:Array,
+                           )->Tuple[Array]:
+
+        i, Ckinv = carry
+        
+        term1 = jnp.einsum('i,k->ik', Ckinv[:,i], Bk)
+        
+        gk = 1./(1.+jnp.trace(term1))
+        inner = gk*jnp.einsum('ik,kj->ij', term1, Ckinv)
+        
+        Ckinv -= inner
+        
+        return ((i+1,Ckinv),)*2
     
     def georce_step(self,
                     zt:Array,
                     ut:Array,
                     sgt:Array,
                     sgt_inv:Array,
+                    sgt_sum_inv:Array,
                     )->Array:
         
-        mut = self.update_scheme(sgt, sgt_inv)
+        mut = self.update_scheme(ut, sgt, sgt_inv, sgt_sum_inv)
 
         ut_hat = -0.5*jnp.einsum('tij,tj->ti', sgt_inv, mut)
         zt_hat = self.z0+jnp.cumsum(ut_hat[:-1], axis=0)
@@ -137,22 +260,24 @@ class AdaGEORCE(ABC):
         return zt_hat-zt, ut_hat-ut
     
     def update_scheme(self, 
+                      ut:Array,
                       sgt:Array, 
                       sgt_inv:Array,
+                      sgt_sum_inv:Array,
                       )->Array:
         
         sg_cumsum = jnp.cumsum(sgt[::-1], axis=0)[::-1]
-        sginv_sum = jnp.sum(sgt_inv, axis=0)
+        
         rhs = jnp.sum(jnp.einsum('tij,tj->ti', sgt_inv[:-1], sg_cumsum), axis=0)+2.0*self.diff
 
-        muT = -jnp.linalg.solve(sginv_sum, rhs)
+        muT = -jnp.dot(sgt_sum_inv, rhs)
         mut = jnp.vstack((muT+sg_cumsum, muT))
         
         return mut
     
     def adaptive_default(self,
-                         SG_k1:Array,
-                         SG_k2:Array,
+                         SJ_k1:Array,
+                         SJ_k2:Array,
                          sgt_k1:Array,
                          sgt_k2:Array,
                          rg_k1:Array,
@@ -163,24 +288,24 @@ class AdaGEORCE(ABC):
                          )->Tuple[Array, Array, Array, Array, Array, Array, Array,
                                   Array, Array, Array]:
     
-        SG_k2 = (1.-self.beta1)*SG_k2+self.beta1*SG_k1
+        SJ_k2 = (1.-self.beta1)*SJ_k2+self.beta1*SJ_k1
         sgt_k2 = (1.-self.beta1)*sgt_k2+self.beta1*sgt_k1
         rg_k2 = (1.-self.beta2)*rg_k2 +self.beta2*rg_k1
         
         beta1 = beta1*self.beta1
         beta2 = beta2*self.beta2
 
-        SG_hat = SG_k2/(1.-beta1)
+        SJ_hat = SJ_k2/(1.-beta1)
         sgt_hat = sgt_k2/(1.-beta1)
         vt = rg_k2/(1.-beta2)
         
         kappa = jnp.min(jnp.array([self.lr_rate/(jnp.sqrt(1+vt)+self.eps),1]))
         
-        return SG_k2, SG_hat, sgt_k2, sgt_hat, rg_k2, beta1, beta2, kappa
+        return SJ_k2, SJ_hat, sgt_k2, sgt_hat, rg_k2, beta1, beta2, kappa
     
     def adaptive_convergence(self,
-                             SG_k1:Array,
-                             SG_k2:Array,
+                             SJ_k1:Array,
+                             SJ_k2:Array,
                              sgt_k1:Array,
                              sgt_k2:Array,
                              rg_k1:Array,
@@ -191,7 +316,7 @@ class AdaGEORCE(ABC):
                              )->Tuple[Array, Array, Array, Array, Array, Array, Array,
                                       Array, Array, Array]:
 
-        SG_k2 = SG_k2/(idx+1.)+SG_k1*idx/(idx+1.)
+        SJ_k2 = SJ_k2/(idx+1.)+SJ_k1*idx/(idx+1.)
         sgt_k2 = sgt_k2/(idx+1.)+sgt_k1*idx/(idx+1.)
         rg_k2 = rg_k2/(idx+1.)+rg_k1*idx/(idx+1.)
         
@@ -200,13 +325,14 @@ class AdaGEORCE(ABC):
         
         kappa = jnp.min(jnp.array([self.lr_rate/(jnp.sqrt(1+rg_k2)+self.eps),1]))
         
-        return SG_k2, SG_k2, sgt_k2, sgt_k2, rg_k2, beta1, beta2, kappa
+        return SJ_k2, SJ_k2, sgt_k2, sgt_k2, rg_k2, beta1, beta2, kappa
     
     def cond_fun(self, 
                  carry:Tuple[Array,Array,Array, Array, int],
                  )->Array:
         
-        zt, ut, SG, SG_hat, sgt, sgt_hat, rg, grad, beta1, beta2, kappa, idx = carry
+        zt, ut, SJ, SJ_hat, sgt, sgt_hat, rg, \
+            grad, beta1, beta2, kappa, idx = carry
         
         norm_grad = jnp.linalg.norm(grad.reshape(-1))
 
@@ -216,26 +342,31 @@ class AdaGEORCE(ABC):
                      carry:Tuple[Array,Array,Array, Array, int],
                      )->Array:
         
-        zt_k1, ut_k1, SG_k1, SG_hat, sgt_k1, sgt_hat, rg_k1, grad, \
-            beta1, beta2, kappa, idx = carry
+        zt_k1, ut_k1, SJ_k1, SJ_hat, sgt_k1, sgt_hat, rg_k1, \
+            grad, beta1, beta2, kappa, idx = carry
         
+        SG0 = jnp.einsum('ij,ik->jk', SJ_hat[0], SJ_hat[0])
+        sgt_inv = self.sgt_inv(SJ_hat)
+        sgt_sum_inv = self.sgt_sum_inv(SG0, sgt_inv)
         zt_sk, ut_sk = self.georce_step(zt_k1,
                                         ut_k1,
                                         sgt_hat,
-                                        vmap(jnp.linalg.inv)(SG_hat))
+                                        sgt_inv,
+                                        sgt_sum_inv,
+                                        )
         
         zt_k2 = zt_k1+kappa*zt_sk
         ut_k2 = ut_k1+kappa*ut_sk
         sk = jnp.vstack((zt_sk, ut_sk))
         
-        grad, (SG_k2, sgt_k2, rg_k2) = self.Denergy(zt_k2, ut_k2)
+        grad, (SJ_k2, sgt_k2, rg_k2) = self.Denergy(zt_k2, ut_k2)
         
-        SG_k2, SG_hat, sgt_k2, sgt_hat, rg_k2, beta1, beta2, kappa \
+        SJ_k2, SJ_hat, sgt_k2, sgt_hat, rg_k2, beta1, beta2, kappa \
             = lax.cond((jnp.linalg.norm(sk.reshape(-1))<self.eps_conv) & (kappa>self.kappa_conv),
                        self.adaptive_convergence,
                        self.adaptive_default,
-                       SG_k1,
-                       SG_k2,
+                       SJ_k1,
+                       SJ_k2,
                        sgt_k1,
                        sgt_k2,
                        rg_k1,
@@ -244,35 +375,42 @@ class AdaGEORCE(ABC):
                        beta2,
                        idx,
                        )
+            
+        #self.alpha_schedule(idx)
         
-        return (zt_k2, ut_k2, SG_k2, SG_hat, sgt_k2, sgt_hat, rg_k2, grad,
-                beta1, beta2, kappa, idx+1)
+        return (zt_k2, ut_k2, SJ_k2, SJ_hat, sgt_k2, sgt_hat, 
+                rg_k2, grad, beta1, beta2, kappa, idx+1)
     
     def for_step(self,
                  carry:Tuple[Array,Array],
                  idx:int,
                  )->Array:
         
-        zt_k1, ut_k1, SG_k1, SG_hat, sgt_k1, sgt_hat, rg_k1, grad, \
-            beta1, beta2, kappa = carry
-        
+        zt_k1, ut_k1, SJ_k1, SJ_hat, sgt_k1, sgt_hat, rg_k1, \
+            grad, beta1, beta2, kappa = carry
+
+        SG0 = jnp.einsum('ij,ik->jk', SJ_hat[0], SJ_hat[0])
+        sgt_inv = self.sgt_inv(SJ_hat)
+        sgt_sum_inv = self.sgt_sum_inv(SG0, sgt_inv)
         zt_sk, ut_sk = self.georce_step(zt_k1,
                                         ut_k1,
                                         sgt_hat,
-                                        vmap(jnp.linalg.inv)(SG_hat))
+                                        sgt_inv,
+                                        sgt_sum_inv,
+                                        )
         
         zt_k2 = zt_k1+kappa*zt_sk
         ut_k2 = ut_k1+kappa*ut_sk
         sk = jnp.vstack((zt_sk, ut_sk))
         
-        grad, (SG_k2, sgt_k2, rg_k2) = self.Denergy(zt_k2, ut_k2)
+        grad, (SJ_k2, sgt_k2, rg_k2) = self.Denergy(zt_k2, ut_k2)
         
-        SG_k2, SG_hat, sgt_k2, sgt_hat, rg_k2, beta1, beta2, kappa \
+        SJ_k2, SJ_hat, sgt_k2, sgt_hat, rg_k2, beta1, beta2, kappa \
             = lax.cond((jnp.linalg.norm(sk.reshape(-1))<self.eps_conv) & (kappa>self.kappa_conv),
                        self.adaptive_convergence,
                        self.adaptive_default,
-                       SG_k1,
-                       SG_k2,
+                       SJ_k1,
+                       SJ_k2,
                        sgt_k1,
                        sgt_k2,
                        rg_k1,
@@ -281,9 +419,11 @@ class AdaGEORCE(ABC):
                        beta2,
                        idx,
                        )
+            
+        self.alpha_schedule(idx)
         
-        return ((zt_k2, ut_k2, SG_k2, SG_hat, sgt_k2, sgt_hat, rg_k2, grad,
-                 beta1, beta2, kappa),)*2
+        return ((zt_k2, ut_k2, SJ_k2, SJ_hat, sgt_k2, sgt_hat, 
+                 rg_k2, grad, beta1, beta2, kappa),)*2
     
     def __call__(self, 
                  z0:Array,
@@ -291,7 +431,10 @@ class AdaGEORCE(ABC):
                  step:str="while",
                  )->Array:
         
-        self.PM = IndicatorManifold(self.M, self.batch_size, self.seed)
+        self.PM = IndicatorManifold(M=self.M, 
+                                    extrinsic_batch_size=self.extrinsic_batch_size, 
+                                    intrinsic_batch_size=self.intrinsic_batch_size,
+                                    seed=self.seed)
         
         self.z0 = z0
         self.zT = zT
@@ -299,17 +442,18 @@ class AdaGEORCE(ABC):
         
         zt = self.init_fun(z0,zT,self.T)
         ut = jnp.ones((self.T, self.M.dim), dtype=z0.dtype)*self.diff/self.T
-        grad, (SG, sgt, rg) = self.Denergy(zt, ut)
+        
+        grad, (SJ, sgt, rg) = self.Denergy(zt, ut)
         
         if step == "while":
-            zt, ut, SG, SG_hat, gt, gt_hat, rg, grad, \
+            zt, ut, SJ, SJ_hat, sgt, sgt_hat, rg, grad, \
                 beta1, beta2, kappa, idx \
                     = lax.while_loop(self.cond_fun,
                                      self.while_step,
                                      init_val=(zt, 
                                                ut, 
-                                               SG, 
-                                               SG,
+                                               SJ, 
+                                               SJ,
                                                sgt,
                                                sgt,
                                                rg, 
@@ -317,7 +461,8 @@ class AdaGEORCE(ABC):
                                                self.beta1, 
                                                self.beta2, 
                                                self.lr_rate, 
-                                               0),
+                                               0,
+                                               ),
                                  )
             
             zt = jnp.vstack((z0, zt, zT))
@@ -326,15 +471,16 @@ class AdaGEORCE(ABC):
             _, val = lax.scan(self.for_step,
                               init=(zt, 
                                     ut, 
-                                    SG, 
-                                    SG, 
+                                    SJ, 
+                                    SJ, 
                                     sgt, 
                                     sgt,
                                     rg, 
                                     grad,
                                     self.beta1, 
                                     self.beta2, 
-                                    self.lr_rate),
+                                    self.lr_rate,
+                                    ),
                               xs=jnp.ones(self.max_iter),
                               )
             
@@ -345,5 +491,4 @@ class AdaGEORCE(ABC):
             raise ValueError(f"step argument should be either for or while. Passed argument is {step}")
             
         return zt, grad, idx
-
         

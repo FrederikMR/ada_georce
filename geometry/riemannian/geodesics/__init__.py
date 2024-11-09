@@ -9,8 +9,7 @@ Created on Thu Sep  5 15:13:29 2024
 #%% Modules
 
 from .georce import GEORCE
+from .ada_georce import AdaGEORCE
+
 from .jax_optimization import JAXOptimization
 from .scipy_optimization import ScipyOptimization
-
-from .ada_georce import AdaGEORCE
-from .reg_georce import RegGEORCE
